@@ -51,6 +51,23 @@ macro_rules! debug {
     })
 }
 
+#[cfg(target_os = "macos")]
+fn send_notification(message: &str) {
+    use std::process::Command;
+    
+    // Пытаемся отправить уведомление через osascript
+    let script = format!(
+        r#"display notification "{}" with title "Logitech Switch""#,
+        message
+    );
+    
+    if let Err(e) = Command::new("osascript")
+        .args(["-e", &script])
+        .output() {
+        debug!("Ошибка отправки уведомления через osascript: {}", e);
+    }
+}
+
 impl ChannelSwitcher {
     fn new() -> Result<Self, Box<dyn Error>> {
         let api = HidApi::new()?;
@@ -102,12 +119,9 @@ impl ChannelSwitcher {
         }
 
         self.current_channel = channel;
-
-        // Обновляем канал в командах
         self.keyboard_cmd.channel = self.current_channel;
         self.mouse_cmd.channel = self.current_channel;
-        // println!("{:?}", self.keyboard_cmd);
-        // Добавляем несколько попыток отправки команд
+
         const MAX_RETRIES: u8 = 3;
         let mut retry_count = 0;
 
@@ -115,15 +129,25 @@ impl ChannelSwitcher {
             match self.send_commands() {
                 Ok(_) => {
                     println!("Переключено на канал {}", self.current_channel);
-                    if env::var("DISPLAY").is_ok() {
-                        if let Err(e) = Notification::new()
-                            .summary("Канал переключен")
-                            .body(&format!("Logitech переключен на {}", self.current_channel + 1))
-                            .timeout(3000)
-                            .show() {
-                            debug!("Ошибка отправки уведомления: {}", e);
+                    
+                    #[cfg(target_os = "macos")]
+                    {
+                        send_notification(&format!("Переключено на канал {}", self.current_channel + 1));
+                    }
+                    
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        if env::var("DISPLAY").is_ok() {
+                            if let Err(e) = Notification::new()
+                                .summary("Канал переключен")
+                                .body(&format!("Logitech переключен на {}", self.current_channel + 1))
+                                .timeout(3000)
+                                .show() {
+                                debug!("Ошибка отправки уведомления: {}", e);
+                            }
                         }
                     }
+                    
                     return Ok(());
                 }
                 Err(e) => {
