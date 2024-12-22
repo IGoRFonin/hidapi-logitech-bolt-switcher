@@ -2,14 +2,8 @@ use hidapi::{HidApi, HidDevice};
 use std::error::Error;
 use std::thread;
 use std::time::{Duration, Instant};
-use std::env;
 use notify_rust::Notification;
-use std::path::Path;
-use libc;
-#[cfg(target_os = "linux")]
-use input_linux::{EventKind, KeyState};
-#[cfg(not(target_os = "linux"))]
-use device_query::{DeviceQuery, DeviceState, Keycode};
+use std::env;
 
 /// Константы для идентификации USB-устройства
 const VID: u16 = 0x046D;        // Vendor ID (Logitech)
