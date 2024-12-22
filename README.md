@@ -119,18 +119,33 @@ cat << EOF > ~/Library/LaunchAgents/com.logitech.switch.plist
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
-    <true/>
+    <false/>
+    <key>ProcessType</key>
+    <string>Interactive</string>
 </dict>
 </plist>
 EOF
 
 # Загружаем сервис
-launchctl load ~/Library/LaunchAgents/com.logitech.switch.plist
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.logitech.switch.plist
 ```
 
-Отключение автозапуска:
+Для управления программой используйте:
 ```bash
-launchctl unload ~/Library/LaunchAgents/com.logitech.switch.plist
+# Остановить
+launchctl bootout gui/$UID/com.logitech.switch
+
+# Запустить
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.logitech.switch.plist
+
+# Перезапустить
+launchctl bootout gui/$UID/com.logitech.switch
+launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.logitech.switch.plist
+```
+
+Для полного удаления:
+```bash
+launchctl bootout gui/$UID/com.logitech.switch
 rm ~/Library/LaunchAgents/com.logitech.switch.plist
 ```
 
