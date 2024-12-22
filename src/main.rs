@@ -287,6 +287,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     #[cfg(not(target_os = "linux"))]
     {
+        use device_query::{DeviceQuery, DeviceState, Keycode};
+
         let device_state = DeviceState::new();
         let mut last_press = None;
         let mut key_released = true;
