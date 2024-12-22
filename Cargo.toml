@@ -1,0 +1,8 @@
+[package]
+name = "channel_switcher"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hidapi = "2.4.1"
+device_query = "1.1.3"
