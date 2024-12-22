@@ -45,7 +45,18 @@ cargo build --release
 # 2. Копирование в bin
 sudo cp target/release/channel_switcher /usr/local/bin/
 
-# 3. Добавление в автозапуск
+# 3. Добавление прав доступа к USB
+sudo usermod -a -G plugdev $USER
+sudo usermod -a -G input $USER
+
+cat << EOF | sudo tee /etc/udev/rules.d/50-logitech.rules
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="c548", MODE="0666", GROUP="plugdev"
+EOF
+
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+
+# 4. Добавление в автозапуск
 cat << EOF | sudo tee /etc/systemd/system/logitech-switch.service
 [Unit]
 Description=Logitech Channel Switcher
@@ -53,17 +64,26 @@ After=network.target
 
 [Service]
 Type=simple
+Environment="DISPLAY=:0"
+Environment="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u)/bus"
+Environment="XDG_RUNTIME_DIR=/run/user/$(id -u)"
 ExecStart=/usr/local/bin/channel_switcher
 Restart=always
+RestartSec=3
 User=$USER
+Group=input
+SupplementaryGroups=plugdev input
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
+# Создаем лог файл и даем права
+sudo touch /var/log/logitech-switch.log
+sudo chown $USER:$USER /var/log/logitech-switch.log
+
 sudo systemctl daemon-reload
-sudo systemctl enable logitech-switch
-sudo systemctl start logitech-switch
+sudo systemctl restart logitech-switch
 ```
 
 Отключение автозапуска:
@@ -71,6 +91,8 @@ sudo systemctl start logitech-switch
 sudo systemctl disable logitech-switch
 sudo systemctl stop logitech-switch
 sudo rm /etc/systemd/system/logitech-switch.service
+sudo rm /etc/udev/rules.d/50-logitech.rules
+sudo rm /var/log/logitech-switch.log
 ```
 
 ### macOS

@@ -1,10 +1,15 @@
 use hidapi::{HidApi, HidDevice};
-use device_query::{DeviceQuery, DeviceState, Keycode};
 use std::error::Error;
 use std::thread;
 use std::time::{Duration, Instant};
 use std::env;
 use notify_rust::Notification;
+use std::path::Path;
+use libc;
+#[cfg(target_os = "linux")]
+use input_linux::{EventKind, KeyState};
+#[cfg(not(target_os = "linux"))]
+use device_query::{DeviceQuery, DeviceState, Keycode};
 
 /// Константы для идентификации USB-устройства
 const VID: u16 = 0x046D;        // Vendor ID (Logitech)
@@ -116,12 +121,14 @@ impl ChannelSwitcher {
             match self.send_commands() {
                 Ok(_) => {
                     println!("Переключено на канал {}", self.current_channel);
-                    if let Err(e) = Notification::new()
-                        .summary("Канал переключен")
-                        .body(&format!("Logitech переключен на {}", self.current_channel + 1))
-                        .timeout(3000) // 3 секунды
-                        .show() {
-                        debug!("Ошибка отправки уведомления: {}", e);
+                    if env::var("DISPLAY").is_ok() {
+                        if let Err(e) = Notification::new()
+                            .summary("Канал переключен")
+                            .body(&format!("Logitech переключен на {}", self.current_channel + 1))
+                            .timeout(3000)
+                            .show() {
+                            debug!("Ошибка отправки уведомления: {}", e);
+                        }
                     }
                     return Ok(());
                 }
@@ -216,64 +223,113 @@ impl ChannelSwitcher {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    // Проверяем переменную окружения для debug режима
     unsafe {
         DEBUG = env::var("DEBUG").is_ok();
     }
 
     let mut switcher = ChannelSwitcher::new()?;
-    let device_state = DeviceState::new();
     
-    let mut last_press = None;
-    let mut key_released = true;
-    let double_press_threshold = Duration::from_millis(500);
-
-    println!("Переключатель каналов запущен.");
-    println!("Быстро нажмите 1, 2 или 3 два раза для переключения каналов (0, 1, 2 соответственно)");
-    println!("Нажмите Ctrl+C для выхода.");
-
-    loop {
-        let keys: Vec<Keycode> = device_state.get_keys();
+    #[cfg(target_os = "linux")]
+    {
+        use std::fs::File;
+        use std::os::unix::io::AsRawFd;
+        use std::path::Path;
         
-        if !keys.is_empty() {
-            debug!("Нажаты клавиши: {:?}", keys);
-        }
+        debug!("Поиск клавиатуры...");
+        
+        let mut last_press: Option<(u8, Instant)> = None;
+        let double_press_threshold = Duration::from_millis(500);
 
-        let current_press = if keys.is_empty() {
-            key_released = true;
-            None
-        } else if key_released {
-            key_released = false;
-            if keys.contains(&Keycode::Key1) {
-                Some((0, Instant::now()))
-            } else if keys.contains(&Keycode::Key2) {
-                Some((1, Instant::now()))
-            } else if keys.contains(&Keycode::Key3) {
-                Some((2, Instant::now()))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        for path in Path::new("/dev/input/by-id").read_dir()? {
+            if let Ok(path) = path {
+                let path_str = path.path().to_string_lossy().to_string();
+                debug!("Проверка устройства: {}", path_str);
+                
+                if path_str.contains("kbd") {
+                    debug!("Найдена клавиатура: {}", path_str);
+                    if let Ok(file) = File::open(&path.path()) {
+                        let fd = file.as_raw_fd();
+                        println!("Переключатель каналов запущен. Используйте двойное нажатие клавиш 1, 2 или 3.");
+                        
+                        let mut event = input_linux::InputEvent { 
+                            time: input_linux::EventTime::new(0, 0),
+                            kind: input_linux::EventKind::Key,
+                            code: 0,
+                            value: 0,
+                        };
+                        loop {
+                            if unsafe { libc::read(fd, &mut event as *mut _ as *mut libc::c_void, std::mem::size_of::<input_linux::InputEvent>()) } > 0 {
+                                if event.kind == input_linux::EventKind::Key {
+                                    if event.value == 0 { // 0 = Released
+                                        let current_press = match event.code {
+                                            2 => Some((0, Instant::now())), // KEY_1
+                                            3 => Some((1, Instant::now())), // KEY_2
+                                            4 => Some((2, Instant::now())), // KEY_3
+                                            _ => None,
+                                        };
 
-        if let Some((channel, time)) = current_press {
-            debug!("Обнаружено нажатие канала {}", channel);
-            if let Some((last_channel, last_time)) = last_press {
-                debug!("Предыдущее нажатие: канал {}, время {:?}", last_channel, time - last_time);
-                if channel == last_channel && time - last_time <= double_press_threshold {
-                    debug!("Обнаружено двойное нажатие для канала {}", channel);
-                    if let Err(e) = switcher.switch_to_channel(channel) {
-                        eprintln!("Ошибка переключения канала: {}", e);
+                                        if let Some((channel, time)) = current_press {
+                                            if let Some((last_channel, last_time)) = last_press {
+                                                if channel == last_channel && time - last_time <= double_press_threshold {
+                                                    switcher.switch_to_channel(channel)?;
+                                                    last_press = None;
+                                                    thread::sleep(Duration::from_millis(300));
+                                                    continue;
+                                                }
+                                            }
+                                            last_press = Some((channel, time));
+                                        }
+                                    }
+                                }
+                            }
+                            thread::sleep(Duration::from_millis(10));
+                        }
                     }
-                    last_press = None;
-                    thread::sleep(Duration::from_millis(300));
-                    continue;
                 }
             }
-            last_press = Some((channel, time));
         }
+        return Err("Клавиатура не найдена".into());
+    }
 
-        thread::sleep(Duration::from_millis(50));
+    #[cfg(not(target_os = "linux"))]
+    {
+        let device_state = DeviceState::new();
+        let mut last_press = None;
+        let mut key_released = true;
+        let double_press_threshold = Duration::from_millis(500);
+
+        println!("Переключатель каналов запущен. Используйте двойное нажатие клавиш 1, 2 или 3.");
+
+        loop {
+            let keys: Vec<Keycode> = device_state.get_keys();
+            
+            if keys.is_empty() && !key_released {
+                key_released = true;
+            } else if !keys.is_empty() && key_released {
+                key_released = false;
+                let current_press = if keys.contains(&Keycode::Key1) {
+                    Some((0, Instant::now()))
+                } else if keys.contains(&Keycode::Key2) {
+                    Some((1, Instant::now()))
+                } else if keys.contains(&Keycode::Key3) {
+                    Some((2, Instant::now()))
+                } else {
+                    None
+                };
+
+                if let Some((channel, time)) = current_press {
+                    if let Some((last_channel, last_time)) = last_press {
+                        if channel == last_channel && time - last_time <= double_press_threshold {
+                            switcher.switch_to_channel(channel)?;
+                            last_press = None;
+                            thread::sleep(Duration::from_millis(300));
+                            continue;
+                        }
+                    }
+                    last_press = Some((channel, time));
+                }
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
     }
 }
