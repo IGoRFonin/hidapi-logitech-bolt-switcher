@@ -2,9 +2,9 @@ use hidapi::{HidApi, HidDevice};
 use device_query::{DeviceQuery, DeviceState, Keycode};
 use std::error::Error;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::env;
-use std::env::consts::OS;
+use notify_rust::Notification;
 
 /// Константы для идентификации USB-устройства
 const VID: u16 = 0x046D;        // Vendor ID (Logitech)
@@ -116,6 +116,13 @@ impl ChannelSwitcher {
             match self.send_commands() {
                 Ok(_) => {
                     println!("Переключено на канал {}", self.current_channel);
+                    if let Err(e) = Notification::new()
+                        .summary("Канал переключен")
+                        .body(&format!("Активирован канал {}", self.current_channel))
+                        .timeout(3000) // 3 секунды
+                        .show() {
+                        debug!("Ошибка отправки уведомления: {}", e);
+                    }
                     return Ok(());
                 }
                 Err(e) => {
@@ -217,48 +224,56 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut switcher = ChannelSwitcher::new()?;
     let device_state = DeviceState::new();
     
-    println!("Переключатель каналов запущен.");
-    match OS {
-        "linux" => println!("Нажмите Alt + 1, Alt + 2 или Alt + 3 для переключения каналов (0, 1, 2 соответственно)"),
-        "macos" => println!("Нажмите Option + 1, Option + 2 или Option + 3 для переключения каналов (0, 1, 2 соответственно)"),
-        _ => println!("Нажмите 1, 2 или 3 для переключения каналов (0, 1, 2 соответственно)"),
-    }
-    println!("Нажмите Ctrl+C для выхода.");
+    let mut last_press = None;
+    let mut key_released = true;
+    let double_press_threshold = Duration::from_millis(500);
 
-    debug!("OS: {}", OS);
+    println!("Переключатель каналов запущен.");
+    println!("Быстро нажмите 1, 2 или 3 два раза для переключения каналов (0, 1, 2 соответственно)");
+    println!("Нажмите Ctrl+C для выхода.");
 
     loop {
         let keys: Vec<Keycode> = device_state.get_keys();
+        
         if !keys.is_empty() {
             debug!("Нажаты клавиши: {:?}", keys);
         }
 
-        // Проверяем модификатор в зависимости от OS
-        let modifier_pressed = match OS {
-            "linux" => keys.contains(&Keycode::LAlt) || keys.contains(&Keycode::RAlt),
-            "macos" => keys.contains(&Keycode::LAlt) || keys.contains(&Keycode::RAlt), // Option key регистрируется как Alt
-            _ => false, // Для других OS модификатор не требуется
+        let current_press = if keys.is_empty() {
+            key_released = true;
+            None
+        } else if key_released {
+            key_released = false;
+            if keys.contains(&Keycode::Key1) {
+                Some((0, Instant::now()))
+            } else if keys.contains(&Keycode::Key2) {
+                Some((1, Instant::now()))
+            } else if keys.contains(&Keycode::Key3) {
+                Some((2, Instant::now()))
+            } else {
+                None
+            }
+        } else {
+            None
         };
 
-        if modifier_pressed {
-            if keys.contains(&Keycode::Key1) {
-                if let Err(e) = switcher.switch_to_channel(0) {
-                    eprintln!("Ошибка переключения канала: {}", e);
+        if let Some((channel, time)) = current_press {
+            debug!("Обнаружено нажатие канала {}", channel);
+            if let Some((last_channel, last_time)) = last_press {
+                debug!("Предыдущее нажатие: канал {}, время {:?}", last_channel, time - last_time);
+                if channel == last_channel && time - last_time <= double_press_threshold {
+                    debug!("Обнаружено двойное нажатие для канала {}", channel);
+                    if let Err(e) = switcher.switch_to_channel(channel) {
+                        eprintln!("Ошибка переключения канала: {}", e);
+                    }
+                    last_press = None;
+                    thread::sleep(Duration::from_millis(300));
+                    continue;
                 }
-                thread::sleep(Duration::from_millis(300));
-            } else if keys.contains(&Keycode::Key2) {
-                if let Err(e) = switcher.switch_to_channel(1) {
-                    eprintln!("Ошибка переключения канала: {}", e);
-                }
-                thread::sleep(Duration::from_millis(300));
-            } else if keys.contains(&Keycode::Key3) {
-                if let Err(e) = switcher.switch_to_channel(2) {
-                    eprintln!("Ошибка переключения канала: {}", e);
-                }
-                thread::sleep(Duration::from_millis(300));
             }
+            last_press = Some((channel, time));
         }
 
-        thread::sleep(Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(50));
     }
 }
