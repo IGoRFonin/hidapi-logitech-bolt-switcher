@@ -104,6 +104,7 @@ cargo build --release
 sudo cp target/release/channel_switcher /usr/local/bin/
 
 # 3. Добавление в автозапуск
+mkdir -p ~/Library/LaunchAgents
 cat << EOF > ~/Library/LaunchAgents/com.logitech.switch.plist
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -123,6 +124,7 @@ cat << EOF > ~/Library/LaunchAgents/com.logitech.switch.plist
 </plist>
 EOF
 
+# Загружаем сервис
 launchctl load ~/Library/LaunchAgents/com.logitech.switch.plist
 ```
 
