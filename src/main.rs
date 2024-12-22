@@ -118,7 +118,7 @@ impl ChannelSwitcher {
                     println!("Переключено на канал {}", self.current_channel);
                     if let Err(e) = Notification::new()
                         .summary("Канал переключен")
-                        .body(&format!("Активирован канал {}", self.current_channel))
+                        .body(&format!("Logitech переключен на ПК {}", self.current_channel + 1))
                         .timeout(3000) // 3 секунды
                         .show() {
                         debug!("Ошибка отправки уведомления: {}", e);
