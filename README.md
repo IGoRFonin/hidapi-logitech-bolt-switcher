@@ -127,25 +127,25 @@ cat << EOF > ~/Library/LaunchAgents/com.logitech.switch.plist
 EOF
 
 # Загружаем сервис
-launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.logitech.switch.plist
+sudo launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.logitech.switch.plist
 ```
 
 Для управления программой используйте:
 ```bash
 # Остановить
-launchctl bootout gui/$UID/com.logitech.switch
+sudo launchctl bootout gui/$UID/com.logitech.switch
 
 # Запустить
-launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.logitech.switch.plist
+sudo launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.logitech.switch.plist
 
 # Перезапустить
-launchctl bootout gui/$UID/com.logitech.switch
-launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.logitech.switch.plist
+sudo launchctl bootout gui/$UID/com.logitech.switch
+sudo launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.logitech.switch.plist
 ```
 
 Для полного удаления:
 ```bash
-launchctl bootout gui/$UID/com.logitech.switch
+sudo launchctl bootout gui/$UID/com.logitech.switch
 rm ~/Library/LaunchAgents/com.logitech.switch.plist
 ```
 
