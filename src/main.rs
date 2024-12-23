@@ -52,20 +52,19 @@ macro_rules! debug {
 }
 
 #[cfg(target_os = "macos")]
-fn send_notification(message: &str) {
+fn notify(message: &str) {
     use std::process::Command;
     
-    // Пытаемся отправить уведомление через osascript
-    let script = format!(
-        r#"display notification "{}" with title "Logitech Switch""#,
-        message
-    );
-    
-    if let Err(e) = Command::new("osascript")
-        .args(["-e", &script])
-        .output() {
-        debug!("Ошибка отправки уведомления через osascript: {}", e);
-    }
+    Command::new("osascript")
+        .args(&[
+            "-e",
+            &format!(
+                "display notification \"{}\" with title \"Logitech Switch\"",
+                message
+            ),
+        ])
+        .output()
+        .ok();
 }
 
 impl ChannelSwitcher {
@@ -132,7 +131,7 @@ impl ChannelSwitcher {
                     
                     #[cfg(target_os = "macos")]
                     {
-                        send_notification(&format!("Переключено на канал {}", self.current_channel + 1));
+                        notify(&format!("Переключено на канал {}", self.current_channel + 1));
                     }
                     
                     #[cfg(not(target_os = "macos"))]
@@ -345,6 +344,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                     if let Some((last_key, last_time)) = last_press {
                         if key == last_key && Instant::now() - last_time <= double_press_threshold {
                             switcher.switch_to_channel(channel)?;
+                            #[cfg(target_os = "macos")]
+                            notify(&format!("Переключено на канал {}", channel));
                             last_press = None;
                             thread::sleep(Duration::from_millis(300));
                             continue;
