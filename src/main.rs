@@ -255,7 +255,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         
         debug!("Поиск клавиатуры...");
         
-        let mut last_press: Option<(u8, Instant)> = None;
+        let mut last_press: Option<(u16, Instant)> = None;
         let double_press_threshold = Duration::from_millis(500);
 
         for path in Path::new("/dev/input/by-id").read_dir()? {
@@ -280,22 +280,25 @@ fn main() -> Result<(), Box<dyn Error>> {
                                 if event.kind == input_linux::EventKind::Key {
                                     if event.value == 0 { // 0 = Released
                                         let current_press = match event.code {
-                                            2 => Some((0, Instant::now())), // KEY_1
-                                            3 => Some((1, Instant::now())), // KEY_2
-                                            4 => Some((2, Instant::now())), // KEY_3
-                                            _ => None,
+                                            2 => Some((2, 0)), // KEY_1
+                                            3 => Some((3, 1)), // KEY_2
+                                            4 => Some((4, 2)), // KEY_3
+                                            _ => {
+                                                last_press = None; // Сброс при нажатии любой другой клавиши
+                                                None
+                                            }
                                         };
 
-                                        if let Some((channel, time)) = current_press {
-                                            if let Some((last_channel, last_time)) = last_press {
-                                                if channel == last_channel && time - last_time <= double_press_threshold {
+                                        if let Some((key_code, channel)) = current_press {
+                                            if let Some((last_key, last_time)) = last_press {
+                                                if key_code == last_key && Instant::now() - last_time <= double_press_threshold {
                                                     switcher.switch_to_channel(channel)?;
                                                     last_press = None;
                                                     thread::sleep(Duration::from_millis(300));
                                                     continue;
                                                 }
                                             }
-                                            last_press = Some((channel, time));
+                                            last_press = Some((key_code, Instant::now()));
                                         }
                                     }
                                 }
@@ -314,7 +317,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         use device_query::{DeviceQuery, DeviceState, Keycode};
 
         let device_state = DeviceState::new();
-        let mut last_press = None;
+        let mut last_press: Option<(Keycode, Instant)> = None;
         let mut key_released = true;
         let double_press_threshold = Duration::from_millis(500);
 
@@ -327,26 +330,27 @@ fn main() -> Result<(), Box<dyn Error>> {
                 key_released = true;
             } else if !keys.is_empty() && key_released {
                 key_released = false;
-                let current_press = if keys.contains(&Keycode::Key1) {
-                    Some((0, Instant::now()))
+                let current_key = if keys.contains(&Keycode::Key1) {
+                    Some((Keycode::Key1, 0))
                 } else if keys.contains(&Keycode::Key2) {
-                    Some((1, Instant::now()))
+                    Some((Keycode::Key2, 1))
                 } else if keys.contains(&Keycode::Key3) {
-                    Some((2, Instant::now()))
+                    Some((Keycode::Key3, 2))
                 } else {
+                    last_press = None;
                     None
                 };
 
-                if let Some((channel, time)) = current_press {
-                    if let Some((last_channel, last_time)) = last_press {
-                        if channel == last_channel && time - last_time <= double_press_threshold {
+                if let Some((key, channel)) = current_key {
+                    if let Some((last_key, last_time)) = last_press {
+                        if key == last_key && Instant::now() - last_time <= double_press_threshold {
                             switcher.switch_to_channel(channel)?;
                             last_press = None;
                             thread::sleep(Duration::from_millis(300));
                             continue;
                         }
                     }
-                    last_press = Some((channel, time));
+                    last_press = Some((key, Instant::now()));
                 }
             }
             thread::sleep(Duration::from_millis(50));
