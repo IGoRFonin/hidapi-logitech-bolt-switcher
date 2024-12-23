@@ -153,7 +153,7 @@ impl ChannelSwitcher {
                     retry_count += 1;
                     eprintln!("Попытка {}/{}: Ошибка отправки команды: {}", retry_count, MAX_RETRIES, e);
                     if retry_count < MAX_RETRIES {
-                        thread::sleep(Duration::from_millis(500)); // Увеличенная задержка между попытками
+                        thread::sleep(Duration::from_millis(500));
                     }
                 }
             }
@@ -344,8 +344,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                     if let Some((last_key, last_time)) = last_press {
                         if key == last_key && Instant::now() - last_time <= double_press_threshold {
                             switcher.switch_to_channel(channel)?;
-                            #[cfg(target_os = "macos")]
-                            notify(&format!("Переключено на канал {}", channel));
                             last_press = None;
                             thread::sleep(Duration::from_millis(300));
                             continue;
