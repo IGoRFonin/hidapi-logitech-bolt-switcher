@@ -200,39 +200,47 @@ impl ChannelSwitcher {
                 thread::sleep(Duration::from_millis(500));
             }
 
-            let keyboard_bytes = self.keyboard_cmd.to_bytes();
-            debug!("Отправка команды клавиатуре (длина {}): {}", 
-                keyboard_bytes.len(),
-                keyboard_bytes.iter()
-                    .map(|b| format!("0x{:02X}", b))
-                    .collect::<Vec<String>>()
-                    .join(","));
-            
-            match self.hid_device.write(&keyboard_bytes) {
-                Ok(_) => {
-                    thread::sleep(Duration::from_millis(500));
-                    
-                    let mouse_bytes = self.mouse_cmd.to_bytes();
-                    debug!("Отправка команды мыши (длина {}): {}", 
-                        mouse_bytes.len(),
-                        mouse_bytes.iter()
-                            .map(|b| format!("0x{:02X}", b))
-                            .collect::<Vec<String>>()
-                            .join(","));
-
-                    match self.hid_device.write(&mouse_bytes) {
-                        Ok(_) => return Ok(()),
-                        Err(e) => {
-                            retry_count += 1;
-                            debug!("Попытка {}/{}: Ошибка отправки команды мыши: {}", retry_count, MAX_RETRIES, e);
-                        }
-                    }
-                }
-                Err(e) => {
+            // Отправляем команды клавиатуре с обоими индексами
+            for keyboard_index in [0x01, 0x02] {
+                self.keyboard_cmd.index = keyboard_index;
+                let keyboard_bytes = self.keyboard_cmd.to_bytes();
+                debug!("Отправка команды клавиатуре (индекс {}, длина {}): {}", 
+                    keyboard_index,
+                    keyboard_bytes.len(),
+                    keyboard_bytes.iter()
+                        .map(|b| format!("0x{:02X}", b))
+                        .collect::<Vec<String>>()
+                        .join(","));
+                
+                if let Err(e) = self.hid_device.write(&keyboard_bytes) {
                     retry_count += 1;
                     debug!("Попытка {}/{}: Ошибка отправки команды клавиатуре: {}", retry_count, MAX_RETRIES, e);
+                    continue;
                 }
+                thread::sleep(Duration::from_millis(500));
             }
+
+            // Отправляем команды мыши с обоими индексами
+            for mouse_index in [0x01, 0x02] {
+                self.mouse_cmd.index = mouse_index;
+                let mouse_bytes = self.mouse_cmd.to_bytes();
+                debug!("Отправка команды мыши (индекс {}, длина {}): {}", 
+                    mouse_index,
+                    mouse_bytes.len(),
+                    mouse_bytes.iter()
+                        .map(|b| format!("0x{:02X}", b))
+                        .collect::<Vec<String>>()
+                        .join(","));
+
+                if let Err(e) = self.hid_device.write(&mouse_bytes) {
+                    retry_count += 1;
+                    debug!("Попытка {}/{}: Ошибка отправки команды мыши: {}", retry_count, MAX_RETRIES, e);
+                    continue;
+                }
+                thread::sleep(Duration::from_millis(500));
+            }
+
+            return Ok(());
         }
 
         Err("Не удалось отправить команды после нескольких попыток".into())
