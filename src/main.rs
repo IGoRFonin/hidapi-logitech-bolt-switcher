@@ -1,21 +1,21 @@
+use clap::Parser;
 use hidapi::{HidApi, HidDevice};
+use std::env;
 use std::error::Error;
 use std::thread;
 use std::time::{Duration, Instant};
-use notify_rust::Notification;
-use std::env;
 
 /// Константы для идентификации USB-устройства
-const VID: u16 = 0x046D;        // Vendor ID (Logitech)
-const PID: u16 = 0xC548;        // Product ID (Logitech Bolt)
+const VID: u16 = 0x046D; // Vendor ID (Logitech)
+const PID: u16 = 0xC548; // Product ID (Logitech Bolt)
 const USAGE: u16 = 0x0001;
 const USAGE_PAGE: u16 = 0xFF00;
 
 /// Структура для формирования команды устройству
 struct DeviceCommand {
-    index: u8,    // Индекс устройства
-    id: u8,       // ID команды
-    channel: u8,  // Номер канала
+    index: u8,   // Индекс устройства
+    id: u8,      // ID команды
+    channel: u8, // Номер канала
 }
 
 impl DeviceCommand {
@@ -31,7 +31,7 @@ impl DeviceCommand {
 
 /// Основная структура для управления переключением каналов
 struct ChannelSwitcher {
-    hid_device: HidDevice,      // HID-устройство (Logitech receiver)
+    hid_device: HidDevice,       // HID-устройство (Logitech receiver)
     keyboard_cmd: DeviceCommand, // Команда для клавиатуры
     mouse_cmd: DeviceCommand,    // Команда для мыши
     current_channel: u8,         // Текущий активный канал
@@ -51,10 +51,18 @@ macro_rules! debug {
     })
 }
 
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Channel to switch to directly
+    #[arg(long)]
+    channel: Option<u8>,
+}
+
 #[cfg(target_os = "macos")]
 fn notify(message: &str) {
     use std::process::Command;
-    
+
     Command::new("osascript")
         .args(&[
             "-e",
@@ -70,23 +78,34 @@ fn notify(message: &str) {
 impl ChannelSwitcher {
     fn new() -> Result<Self, Box<dyn Error>> {
         let api = HidApi::new()?;
-        
+
         // Ищем устройство с нужными usage и usagePage
         let mut target_device = None;
-        
+
         for device in api.device_list() {
-            if device.vendor_id() == VID && 
-               device.product_id() == PID && 
-               device.usage() == USAGE && 
-               device.usage_page() == USAGE_PAGE {
+            if device.vendor_id() == VID
+                && device.product_id() == PID
+                && device.usage() == USAGE
+                && device.usage_page() == USAGE_PAGE
+            {
                 debug!("Найдено подходящее устройство:");
-                debug!("  Производитель: {}", device.manufacturer_string().unwrap_or("Неизвестно"));
-                debug!("  Продукт: {}", device.product_string().unwrap_or("Неизвестно"));
-                debug!("  VID/PID: {:04X}:{:04X}", device.vendor_id(), device.product_id());
+                debug!(
+                    "  Производитель: {}",
+                    device.manufacturer_string().unwrap_or("Неизвестно")
+                );
+                debug!(
+                    "  Продукт: {}",
+                    device.product_string().unwrap_or("Неизвестно")
+                );
+                debug!(
+                    "  VID/PID: {:04X}:{:04X}",
+                    device.vendor_id(),
+                    device.product_id()
+                );
                 debug!("  Путь: {}", device.path().to_string_lossy());
                 debug!("  Usage Page: 0x{:04X}", device.usage_page());
                 debug!("  Usage: 0x{:04X}", device.usage());
-                
+
                 target_device = Some(device.path().to_string_lossy().into_owned());
                 break;
             }
@@ -109,7 +128,7 @@ impl ChannelSwitcher {
     }
 
     /// Переключает устройства на указанный канал
-    /// 
+    ///
     /// # Аргументы
     /// * `channel` - Номер канала (0, 1 или 2)
     fn switch_to_channel(&mut self, channel: u8) -> Result<(), Box<dyn Error>> {
@@ -128,30 +147,40 @@ impl ChannelSwitcher {
             match self.send_commands() {
                 Ok(_) => {
                     println!("Переключено на канал {}", self.current_channel);
-                    
+
                     #[cfg(target_os = "macos")]
                     {
-                        notify(&format!("Переключено на канал {}", self.current_channel + 1));
+                        notify(&format!(
+                            "Переключено на канал {}",
+                            self.current_channel + 1
+                        ));
                     }
-                    
+
                     #[cfg(not(target_os = "macos"))]
                     {
                         if env::var("DISPLAY").is_ok() {
                             if let Err(e) = Notification::new()
                                 .summary("Канал переключен")
-                                .body(&format!("Logitech переключен на {}", self.current_channel + 1))
+                                .body(&format!(
+                                    "Logitech переключен на {}",
+                                    self.current_channel + 1
+                                ))
                                 .timeout(3000)
-                                .show() {
+                                .show()
+                            {
                                 debug!("Ошибка отправки уведомления: {}", e);
                             }
                         }
                     }
-                    
+
                     return Ok(());
                 }
                 Err(e) => {
                     retry_count += 1;
-                    eprintln!("Попытка {}/{}: Ошибка отправки команды: {}", retry_count, MAX_RETRIES, e);
+                    eprintln!(
+                        "Попытка {}/{}: Ошибка отправки команды: {}",
+                        retry_count, MAX_RETRIES, e
+                    );
                     if retry_count < MAX_RETRIES {
                         thread::sleep(Duration::from_millis(500));
                     }
@@ -164,14 +193,15 @@ impl ChannelSwitcher {
 
     fn reopen_device(&mut self) -> Result<(), Box<dyn Error>> {
         let api = HidApi::new()?;
-        
+
         // Ищем устройство с нужными параметрами
         let mut target_device = None;
         for device in api.device_list() {
-            if device.vendor_id() == VID && 
-               device.product_id() == PID && 
-               device.usage() == USAGE && 
-               device.usage_page() == USAGE_PAGE {
+            if device.vendor_id() == VID
+                && device.product_id() == PID
+                && device.usage() == USAGE
+                && device.usage_page() == USAGE_PAGE
+            {
                 target_device = Some(device.path().to_string_lossy().into_owned());
                 break;
             }
@@ -204,17 +234,23 @@ impl ChannelSwitcher {
             for keyboard_index in [0x01, 0x02] {
                 self.keyboard_cmd.index = keyboard_index;
                 let keyboard_bytes = self.keyboard_cmd.to_bytes();
-                debug!("Отправка команды клавиатуре (индекс {}, длина {}): {}", 
+                debug!(
+                    "Отправка команды клавиатуре (индекс {}, длина {}): {}",
                     keyboard_index,
                     keyboard_bytes.len(),
-                    keyboard_bytes.iter()
+                    keyboard_bytes
+                        .iter()
                         .map(|b| format!("0x{:02X}", b))
                         .collect::<Vec<String>>()
-                        .join(","));
-                
+                        .join(",")
+                );
+
                 if let Err(e) = self.hid_device.write(&keyboard_bytes) {
                     retry_count += 1;
-                    debug!("Попытка {}/{}: Ошибка отправки команды клавиатуре: {}", retry_count, MAX_RETRIES, e);
+                    debug!(
+                        "Попытка {}/{}: Ошибка отправки команды клавиатуре: {}",
+                        retry_count, MAX_RETRIES, e
+                    );
                     continue;
                 }
                 thread::sleep(Duration::from_millis(500));
@@ -224,17 +260,23 @@ impl ChannelSwitcher {
             for mouse_index in [0x01, 0x02] {
                 self.mouse_cmd.index = mouse_index;
                 let mouse_bytes = self.mouse_cmd.to_bytes();
-                debug!("Отправка команды мыши (индекс {}, длина {}): {}", 
+                debug!(
+                    "Отправка команды мыши (индекс {}, длина {}): {}",
                     mouse_index,
                     mouse_bytes.len(),
-                    mouse_bytes.iter()
+                    mouse_bytes
+                        .iter()
                         .map(|b| format!("0x{:02X}", b))
                         .collect::<Vec<String>>()
-                        .join(","));
+                        .join(",")
+                );
 
                 if let Err(e) = self.hid_device.write(&mouse_bytes) {
                     retry_count += 1;
-                    debug!("Попытка {}/{}: Ошибка отправки команды мыши: {}", retry_count, MAX_RETRIES, e);
+                    debug!(
+                        "Попытка {}/{}: Ошибка отправки команды мыши: {}",
+                        retry_count, MAX_RETRIES, e
+                    );
                     continue;
                 }
                 thread::sleep(Duration::from_millis(500));
@@ -252,16 +294,32 @@ fn main() -> Result<(), Box<dyn Error>> {
         DEBUG = env::var("DEBUG").is_ok();
     }
 
+    let args = Args::parse();
+
     let mut switcher = ChannelSwitcher::new()?;
-    
+
+    if let Some(channel) = args.channel {
+        if channel >= 1 && channel <= 3 {
+            switcher.switch_to_channel(channel - 1)?;
+            println!(
+                "Переключено на канал {} по аргументу командной строки.",
+                channel
+            );
+            return Ok(());
+        } else {
+            eprintln!("Ошибка: номер канала должен быть 1, 2 или 3.");
+            return Err("Неверный номер канала в аргументе".into());
+        }
+    }
+
     #[cfg(target_os = "linux")]
     {
         use std::fs::File;
         use std::os::unix::io::AsRawFd;
         use std::path::Path;
-        
+
         debug!("Поиск клавиатуры...");
-        
+
         let mut last_press: Option<(u16, Instant)> = None;
         let double_press_threshold = Duration::from_millis(500);
 
@@ -269,23 +327,31 @@ fn main() -> Result<(), Box<dyn Error>> {
             if let Ok(path) = path {
                 let path_str = path.path().to_string_lossy().to_string();
                 debug!("Проверка устройства: {}", path_str);
-                
+
                 if path_str.contains("kbd") {
                     debug!("Найдена клавиатура: {}", path_str);
                     if let Ok(file) = File::open(&path.path()) {
                         let fd = file.as_raw_fd();
                         println!("Переключатель каналов запущен. Используйте двойное нажатие клавиш 1, 2 или 3.");
-                        
-                        let mut event = input_linux::InputEvent { 
+
+                        let mut event = input_linux::InputEvent {
                             time: input_linux::EventTime::new(0, 0),
                             kind: input_linux::EventKind::Key,
                             code: 0,
                             value: 0,
                         };
                         loop {
-                            if unsafe { libc::read(fd, &mut event as *mut _ as *mut libc::c_void, std::mem::size_of::<input_linux::InputEvent>()) } > 0 {
+                            if unsafe {
+                                libc::read(
+                                    fd,
+                                    &mut event as *mut _ as *mut libc::c_void,
+                                    std::mem::size_of::<input_linux::InputEvent>(),
+                                )
+                            } > 0
+                            {
                                 if event.kind == input_linux::EventKind::Key {
-                                    if event.value == 0 { // 0 = Released
+                                    if event.value == 0 {
+                                        // 0 = Released
                                         let current_press = match event.code {
                                             2 => Some((2, 0)), // KEY_1
                                             3 => Some((3, 1)), // KEY_2
@@ -298,7 +364,10 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                                         if let Some((key_code, channel)) = current_press {
                                             if let Some((last_key, last_time)) = last_press {
-                                                if key_code == last_key && Instant::now() - last_time <= double_press_threshold {
+                                                if key_code == last_key
+                                                    && Instant::now() - last_time
+                                                        <= double_press_threshold
+                                                {
                                                     switcher.switch_to_channel(channel)?;
                                                     last_press = None;
                                                     thread::sleep(Duration::from_millis(300));
@@ -332,7 +401,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         loop {
             let keys: Vec<Keycode> = device_state.get_keys();
-            
+
             if keys.is_empty() && !key_released {
                 key_released = true;
             } else if !keys.is_empty() && key_released {
